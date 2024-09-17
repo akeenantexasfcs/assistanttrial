@@ -13,6 +13,8 @@ import streamlit as st
 import boto3
 from botocore.exceptions import NoCredentialsError
 from io import BytesIO
+import asyncio
+import threading
 
 # Use Streamlit's secrets management
 openai.api_key = st.secrets["OPENAI_API_KEY"]
@@ -44,7 +46,7 @@ def upload_file():
     with open(FILEPATH, "rb") as file:
         return client.files.create(file=file, purpose="assistants")
 
-def wait_for_run_completion(thread_id, run_id, sleep_interval=5):
+def wait_for_run_completion(thread_id, run_id, sleep_interval=2):
     """Wait for a run to complete and return the response"""
     while True:
         try:
@@ -95,7 +97,7 @@ def is_job_complete(job_id):
         elif status == 'FAILED':
             raise Exception("Text detection job failed.")
         else:
-            time.sleep(5)  # Wait before polling again
+            time.sleep(2)  # Reduced wait time
 
 # Function to retrieve and parse the Textract response
 def get_text_from_response(job_id):
@@ -115,65 +117,58 @@ def get_text_from_response(job_id):
             text += block['Text'] + '\n'
     return text
 
+# Asynchronous function to process document upload and text extraction
+def process_document(uploaded_file, slot_number, document_text_container):
+    if uploaded_file is not None:
+        bucket_name = st.secrets["aws"]["s3_bucket_name"]
+        object_name = uploaded_file.name
+        upload_to_s3(uploaded_file, bucket_name, object_name)
+
+        # Start Textract job
+        job_id = start_text_detection(bucket_name, object_name)
+
+        # Wait for the job to complete
+        if is_job_complete(job_id):
+            # Get the extracted text
+            document_text = get_text_from_response(job_id)
+            document_text_container[slot_number] = document_text
+            st.success(f"Slot {slot_number}: Document text extracted successfully.")
+
+            # Display a preview of the extracted text
+            st.subheader(f"Slot {slot_number} - Preview of Extracted Text:")
+            preview_text = document_text[:500] + '...' if len(document_text) > 500 else document_text
+            st.text_area(f"Slot {slot_number} Extracted Text", preview_text, height=200, key=f"slot{slot_number}_preview")
+        else:
+            st.error(f"Slot {slot_number}: Failed to extract text from the document.")
+
 def main():
     st.title("AI Assistant - Memo Writer")
 
-    # AWS S3 bucket name
-    bucket_name = st.secrets["aws"]["s3_bucket_name"]
+    # Containers to hold extracted text
+    document_texts = {}
 
     # Slot 1 - Document Upload and Text Extraction
     st.subheader("Slot 1 [Suggested Upload = Marketing Materials]")
     uploaded_file1 = st.file_uploader("Upload a document for Slot 1", type=['pdf', 'docx', 'png', 'jpg'], key="slot1")
 
-    document_text1 = None
-
-    if uploaded_file1 is not None:
-        # Upload the file to S3
-        object_name1 = uploaded_file1.name
-        upload_to_s3(uploaded_file1, bucket_name, object_name1)
-
-        # Start Textract job
-        job_id1 = start_text_detection(bucket_name, object_name1)
-
-        # Wait for the job to complete
-        if is_job_complete(job_id1):
-            # Get the extracted text
-            document_text1 = get_text_from_response(job_id1)
-            st.success("Slot 1: Document text extracted successfully.")
-
-            # Display a preview of the extracted text
-            st.subheader("Slot 1 - Preview of Extracted Text:")
-            preview_text1 = document_text1[:500] + '...' if len(document_text1) > 500 else document_text1
-            st.text_area("Slot 1 Extracted Text", preview_text1, height=200, key="slot1_preview")
-        else:
-            st.error("Slot 1: Failed to extract text from the document.")
-
     # Slot 2 - Document Upload and Text Extraction
     st.subheader("Slot 2 [Suggested Upload = Term Sheet]")
     uploaded_file2 = st.file_uploader("Upload a document for Slot 2", type=['pdf', 'docx', 'png', 'jpg'], key="slot2")
 
-    document_text2 = None
-
+    # Process documents in parallel threads
+    threads = []
+    if uploaded_file1 is not None:
+        t1 = threading.Thread(target=process_document, args=(uploaded_file1, 1, document_texts))
+        threads.append(t1)
+        t1.start()
     if uploaded_file2 is not None:
-        # Upload the file to S3
-        object_name2 = uploaded_file2.name
-        upload_to_s3(uploaded_file2, bucket_name, object_name2)
+        t2 = threading.Thread(target=process_document, args=(uploaded_file2, 2, document_texts))
+        threads.append(t2)
+        t2.start()
 
-        # Start Textract job
-        job_id2 = start_text_detection(bucket_name, object_name2)
-
-        # Wait for the job to complete
-        if is_job_complete(job_id2):
-            # Get the extracted text
-            document_text2 = get_text_from_response(job_id2)
-            st.success("Slot 2: Document text extracted successfully.")
-
-            # Display a preview of the extracted text
-            st.subheader("Slot 2 - Preview of Extracted Text:")
-            preview_text2 = document_text2[:500] + '...' if len(document_text2) > 500 else document_text2
-            st.text_area("Slot 2 Extracted Text", preview_text2, height=200, key="slot2_preview")
-        else:
-            st.error("Slot 2: Failed to extract text from the document.")
+    # Wait for all threads to complete
+    for t in threads:
+        t.join()
 
     # User input
     user_message = st.text_input("Ask a question about cryptocurrency:", "What is mining?")
@@ -182,10 +177,10 @@ def main():
         with st.spinner("Processing your question..."):
             # Include extracted texts as additional context if available
             additional_context = ""
-            if document_text1:
-                additional_context += f"\n\nAdditional context from Slot 1 document:\n{document_text1}"
-            if document_text2:
-                additional_context += f"\n\nAdditional context from Slot 2 document:\n{document_text2}"
+            if 1 in document_texts:
+                additional_context += f"\n\nAdditional context from Slot 1 document:\n{document_texts[1]}"
+            if 2 in document_texts:
+                additional_context += f"\n\nAdditional context from Slot 2 document:\n{document_texts[2]}"
 
             # Append additional context to the user message
             if additional_context:
