@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.INFO)
 # Constants
 MODEL = "GPT-4o-mini"
 FILEPATH = "./cryptocurrency.pdf"
-THREAD_ID = "thread_i6r0bbKnbvhjsBtkunMeyBm7"
+THREAD_ID = "thread_F7S14lJmDKPJJKSyKzZ70or4"
 ASSIS_ID = "asst_xrWMge210o7NV2yVLrKZaV8B"
 
 def upload_file():
