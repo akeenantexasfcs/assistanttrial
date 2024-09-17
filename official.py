@@ -5,20 +5,30 @@
 
 
 import os
-import openai
 import time
 import logging
 from datetime import datetime
+from io import BytesIO
+
 import streamlit as st
 import boto3
 from botocore.exceptions import NoCredentialsError
-from io import BytesIO
+from openai import OpenAI
 
-# Use Streamlit's secrets management
-openai.api_key = st.secrets["myapi"]["OPENAI_API_KEY"]
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Constants
+OPENAI_API_KEY = st.secrets["myapi"]["OPENAI_API_KEY"]
 
 # Initialize OpenAI client
-client = openai.OpenAI()
+try:
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    logger.info("OpenAI client initialized successfully")
+except Exception as e:
+    logger.error(f"Error initializing OpenAI client: {e}")
+    raise
 
 # Initialize boto3 session with credentials from secrets.toml
 session = boto3.Session(
