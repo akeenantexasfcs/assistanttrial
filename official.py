@@ -162,7 +162,7 @@ def main():
         password = st.text_input("Enter password:", type="password")
         if password == st.secrets["password"]["APP_PASSWORD"]:
             st.session_state['password_correct'] = True
-            st.experimental_rerun()
+            st.rerun()  # Changed from st.experimental_rerun()
         elif password:
             st.error("Password incorrect")
         return
