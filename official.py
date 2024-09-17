@@ -14,14 +14,11 @@ import boto3
 from botocore.exceptions import NoCredentialsError
 from io import BytesIO
 
-# Set password
-PASSWORD = "TexasFarmCredit357!"
-
 # Password input
 def check_password():
     st.title("AI Assistant - Memo Writer")
     password = st.text_input("Enter password:", type="password")
-    if password == PASSWORD:
+    if password == st.secrets["APP_PASSWORD"]:
         return True
     else:
         st.error("Incorrect password. Please try again.")
