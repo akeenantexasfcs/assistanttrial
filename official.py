@@ -137,6 +137,12 @@ def main():
             # Get the extracted text
             document_text = get_text_from_response(job_id)
             st.success("Document text extracted successfully.")
+
+            # Display a preview of the extracted text
+            st.subheader("Preview of Extracted Text:")
+            # Show only the first 500 characters to avoid overwhelming the user
+            preview_text = document_text[:500] + '...' if len(document_text) > 500 else document_text
+            st.text_area("Extracted Text", preview_text, height=200)
         else:
             st.error("Failed to extract text from the document.")
 
