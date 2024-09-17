@@ -125,7 +125,7 @@ def main():
 
     if uploaded_file is not None:
         # Upload the file to S3
-        bucket_name = st.secrets["aws"]["bucket_name"]
+        bucket_name = st.secrets["aws"]["s3_bucket_name"]
         object_name = uploaded_file.name
         upload_to_s3(uploaded_file, bucket_name, object_name)
 
