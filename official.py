@@ -83,6 +83,14 @@ def get_text_from_response(job_id):
             text += block['Text'] + '\n'
     return text
 
+def wait_for_job_completion(job_id):
+    """Waits for the Textract job to complete and returns the status."""
+    while True:
+        status = is_job_complete(job_id)
+        if status == 'SUCCEEDED' or status == 'FAILED':
+            return status
+        time.sleep(5)  # Wait before checking the status again
+
 def main():
     st.title("AI Assistant - Memo Writer")
 
@@ -103,7 +111,7 @@ def main():
     slot1_status_placeholder = st.empty()
     slot1_preview_placeholder = st.empty()
 
-    if uploaded_file1 is not None:
+    if uploaded_file1 is not None and 'slot1' not in st.session_state.document_texts:
         # Upload the file to S3
         object_name1 = uploaded_file1.name
         upload_to_s3(uploaded_file1, bucket_name, object_name1)
@@ -113,9 +121,6 @@ def main():
         st.session_state.job_ids['slot1'] = job_id1
         st.session_state['slot1_object_name'] = object_name1
         slot1_status_placeholder.info("Slot 1: Extracting text... This may take a moment.")
-
-        # Rerun the script to start polling
-        st.experimental_rerun()
 
     # Check if Slot 1 job is in progress
     if 'slot1' in st.session_state.job_ids:
@@ -135,9 +140,8 @@ def main():
             slot1_status_placeholder.error("Slot 1: Failed to extract text from the document.")
             del st.session_state.job_ids['slot1']  # Remove job ID as it's completed
         else:
-            # Job is still in progress, rerun after a short delay
-            time.sleep(5)
-            st.experimental_rerun()
+            # Job is still in progress, show waiting message
+            slot1_status_placeholder.info("Slot 1: Extracting text... This may take a moment.")
 
     # Slot 2 - Document Upload and Text Extraction
     st.subheader("Slot 2 [Suggested Upload = Term Sheet]")
@@ -147,7 +151,7 @@ def main():
     slot2_status_placeholder = st.empty()
     slot2_preview_placeholder = st.empty()
 
-    if uploaded_file2 is not None:
+    if uploaded_file2 is not None and 'slot2' not in st.session_state.document_texts:
         # Upload the file to S3
         object_name2 = uploaded_file2.name
         upload_to_s3(uploaded_file2, bucket_name, object_name2)
@@ -157,9 +161,6 @@ def main():
         st.session_state.job_ids['slot2'] = job_id2
         st.session_state['slot2_object_name'] = object_name2
         slot2_status_placeholder.info("Slot 2: Extracting text... This may take a moment.")
-
-        # Rerun the script to start polling
-        st.experimental_rerun()
 
     # Check if Slot 2 job is in progress
     if 'slot2' in st.session_state.job_ids:
@@ -179,9 +180,8 @@ def main():
             slot2_status_placeholder.error("Slot 2: Failed to extract text from the document.")
             del st.session_state.job_ids['slot2']  # Remove job ID as it's completed
         else:
-            # Job is still in progress, rerun after a short delay
-            time.sleep(5)
-            st.experimental_rerun()
+            # Job is still in progress, show waiting message
+            slot2_status_placeholder.info("Slot 2: Extracting text... This may take a moment.")
 
     # Slot 3 - Pricing Data Input
     st.subheader("Slot 3 [Suggested Upload = Pricing Data]")
