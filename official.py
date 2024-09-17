@@ -39,7 +39,66 @@ MODEL = "GPT-4o-mini"
 THREAD_ID = "thread_F7S14lJmDKPJJKSyKzZ70or4"
 ASSIS_ID = "asst_xrWMge210o7NV2yVLrKZaV8B"
 
-# Assistant Role Description (unchanged)
+# Assistant Role Description
+ASSISTANT_ROLE_DESCRIPTION = """
+You are an expert Credit Analyst AI assistant specialized in writing indication of interest memos for the Executive Loan Committee. Your primary function is to help decide whether to participate in loan offerings. You should have Action Required with a date and time of response being needed. Unless that is supplied to you, use a placeholder.
+
+Key Responsibilities:
+
+- Write clear, concise memos ranging from 250 to 1,000 words, depending on deal complexity.
+- Use bullet points for clarity.
+- Provide insights on loan ratings and their implications.
+
+Loan Rating Guidelines:
+
+- **Probability of Default (PD):**
+  - PD7 or less: Viewed positively.
+  - PD8: Generally neutral.
+  - PD9 or higher: Viewed negatively.
+
+- **Loss Given Default (LGD):**
+  - Preferred ratings: B or D.
+  - Other ratings: Less favorable.
+
+Memo Structure:
+
+- **Section 0: Introduction**
+  - Provide deal details.
+  - Include optional Strengths and Drawbacks.
+  - Indicate your disposition (Positive, Negative, or Neutral).
+
+- **Section 1: Borrower Overview and Deal Summary**
+  - Research borrower using provided documents and/or internet sources.
+  - Summarize key points about the borrower and the deal.
+
+- **Section 2: Pricing**
+  - Analyze Income Yield and Capital Yield data.
+  - Evaluate spreads:
+    - Above 2.5%: Very favorable (considering PD).
+    - Around 2.0%: Neutral.
+    - Below 2.0%: Less favorable.
+    - Below 1.50%: Undesirable (unless very low PD).
+
+- **Section 3: Financial Analysis**
+  - Provide "back of the envelope" financial analysis using uploaded files.
+  - Include relevant information such as:
+    - Debt/EBITDA tables for publicly traded proxies.
+    - Capitalization tables.
+    - Historical performance data.
+
+- **Section 4: Appendix**
+  - Include any additional helpful information about the credit.
+  - Use judgment to determine relevant content.
+
+Additional Notes:
+
+- Reference provided sample memos for structural inspiration.
+- Adapt your analysis based on the complexity and specifics of each deal.
+- Your ultimate goal is to facilitate a deeper understanding of complex loan offerings, making it more accessible and comprehensible.
+- Respond to queries effectively, incorporating feedback to enhance your accuracy.
+- Handle data securely and update your knowledge base with the latest research.
+- Maintain a feedback loop for continuous improvement and user support.
+"""
 
 # Function to upload file to S3
 def upload_to_s3(fileobj, bucket_name, object_name):
@@ -72,36 +131,31 @@ def get_text_from_response(job_id):
     response = textract.get_document_text_detection(JobId=job_id)
     blocks = response['Blocks']
     text = ''
-
+    
     # Handle pagination
     next_token = response.get('NextToken')
     while next_token:
         response = textract.get_document_text_detection(JobId=job_id, NextToken=next_token)
         blocks.extend(response['Blocks'])
         next_token = response.get('NextToken')
-
+    
     for block in blocks:
         if block['BlockType'] == 'LINE':
             text += block['Text'] + '\n'
     return text
 
 def main():
-    # Password protection
-    if 'authenticated' not in st.session_state:
-        st.session_state['authenticated'] = False
-
-    if not st.session_state['authenticated']:
-        password_placeholder = st.empty()
-        password = password_placeholder.text_input("Enter password to access the app:", type="password")
-        if password == st.secrets["APP_PASSWORD"]:
-            st.session_state['authenticated'] = True
-            password_placeholder.empty()
-            st.success("Authentication successful!")
-        else:
-            st.warning("Please enter the correct password.")
-            return
-
     st.title("AI Assistant - Memo Writer")
+
+    # Password protection
+    if 'password_correct' not in st.session_state:
+        password = st.text_input("Enter password:", type="password")
+        if password == st.secrets["APP_PASSWORD"]:
+            st.session_state['password_correct'] = True
+            st.experimental_rerun()
+        elif password:
+            st.error("Password incorrect")
+        return
 
     # AWS S3 bucket name
     bucket_name = st.secrets["aws"]["s3_bucket_name"]
@@ -129,7 +183,7 @@ def main():
         job_id1 = start_text_detection(bucket_name, object_name1)
         st.session_state.job_ids['slot1'] = job_id1
         st.session_state['slot1_object_name'] = object_name1
-        slot1_status_placeholder.info("Slot 1: Extracting text... This may take a moment.")
+        slot1_status_placeholder.info("Slot 1: Text extraction started... Please wait.")
 
     # Check if Slot 1 job is in progress
     if 'slot1' in st.session_state.job_ids:
@@ -150,7 +204,7 @@ def main():
             del st.session_state.job_ids['slot1']  # Remove job ID as it's completed
         else:
             # Job is still in progress, show waiting message
-            slot1_status_placeholder.info("Slot 1: Extracting text... This may take a moment.")
+            slot1_status_placeholder.info("Slot 1: Text extraction in progress... Please wait.")
     elif 'slot1' in st.session_state.document_texts:
         # Confirmation message if extraction is already done
         slot1_status_placeholder.success("Slot 1: Document text extracted successfully.")
@@ -172,7 +226,7 @@ def main():
         job_id2 = start_text_detection(bucket_name, object_name2)
         st.session_state.job_ids['slot2'] = job_id2
         st.session_state['slot2_object_name'] = object_name2
-        slot2_status_placeholder.info("Slot 2: Extracting text... This may take a moment.")
+        slot2_status_placeholder.info("Slot 2: Text extraction started... Please wait.")
 
     # Check if Slot 2 job is in progress
     if 'slot2' in st.session_state.job_ids:
@@ -193,7 +247,7 @@ def main():
             del st.session_state.job_ids['slot2']  # Remove job ID as it's completed
         else:
             # Job is still in progress, show waiting message
-            slot2_status_placeholder.info("Slot 2: Extracting text... This may take a moment.")
+            slot2_status_placeholder.info("Slot 2: Text extraction in progress... Please wait.")
     elif 'slot2' in st.session_state.document_texts:
         # Confirmation message if extraction is already done
         slot2_status_placeholder.success("Slot 2: Document text extracted successfully.")
@@ -261,6 +315,10 @@ Please write an indication of interest memo based on the provided documents and 
                 st.write(response)
             else:
                 st.error("Failed to get a response. Please try again.")
+
+            # Optionally, display run steps (for debugging)
+            # run_steps = client.beta.threads.runs.steps.list(thread_id=THREAD_ID, run_id=run.id)
+            # st.write("Run Steps:", run_steps.data[0])
 
 def wait_for_run_completion(thread_id, run_id, sleep_interval=5):
     """Wait for a run to complete and return the response"""
