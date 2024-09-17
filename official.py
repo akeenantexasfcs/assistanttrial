@@ -15,7 +15,10 @@ from botocore.exceptions import NoCredentialsError
 from io import BytesIO
 
 # Use Streamlit's secrets management
-openai.api_key = st.secrets["openai"]["api_key"]
+openai.api_key = st.secrets["OPENAI_API_KEY"]
+
+# Initialize OpenAI client
+client = openai.OpenAI()
 
 # Initialize boto3 session with credentials from secrets.toml
 session = boto3.Session(
@@ -24,7 +27,7 @@ session = boto3.Session(
     region_name=st.secrets["aws"]["region_name"]
 )
 
-# Create clients
+# Create AWS clients
 s3 = session.client('s3')
 textract = session.client('textract')
 
@@ -116,7 +119,7 @@ def main():
     st.title("AI Assistant - Memo Writer")
 
     # Optional document upload
-    uploaded_file = st.file_uploader("Upload a document (PDF, DOCX, etc.)", type=['pdf', 'docx', 'png', 'jpg'])
+    uploaded_file = st.file_uploader("Upload a document (PDF, DOCX, PNG, JPG)", type=['pdf', 'docx', 'png', 'jpg'])
 
     document_text = None
 
@@ -168,9 +171,9 @@ def main():
             else:
                 st.error("Failed to get a response. Please try again.")
 
-            # Optionally, display run steps (for debugging)
-            run_steps = client.beta.threads.runs.steps.list(thread_id=THREAD_ID, run_id=run.id)
-            st.write("Run Steps:", run_steps.data[0])
+        # Optionally, display run steps (for debugging)
+        run_steps = client.beta.threads.runs.steps.list(thread_id=THREAD_ID, run_id=run.id)
+        st.write("Run Steps:", run_steps.data[0])
 
 if __name__ == "__main__":
     main()
