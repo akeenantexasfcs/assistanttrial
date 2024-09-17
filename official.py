@@ -39,6 +39,67 @@ MODEL = "GPT-4o-mini"
 THREAD_ID = "thread_F7S14lJmDKPJJKSyKzZ70or4"
 ASSIS_ID = "asst_xrWMge210o7NV2yVLrKZaV8B"
 
+# Assistant Role Description
+ASSISTANT_ROLE_DESCRIPTION = """
+You are an expert Credit Analyst AI assistant specialized in writing indication of interest memos for the Executive Loan Committee. Your primary function is to help decide whether to participate in loan offerings. You should have Action Required with a date and time of response being needed. Unless that is supplied to you, use a placeholder.
+
+Key Responsibilities:
+
+- Write clear, concise memos ranging from 250 to 1,000 words, depending on deal complexity.
+- Use bullet points for clarity.
+- Provide insights on loan ratings and their implications.
+
+Loan Rating Guidelines:
+
+- **Probability of Default (PD):**
+  - PD7 or less: Viewed positively.
+  - PD8: Generally neutral.
+  - PD9 or higher: Viewed negatively.
+
+- **Loss Given Default (LGD):**
+  - Preferred ratings: B or D.
+  - Other ratings: Less favorable.
+
+Memo Structure:
+
+- **Section 0: Introduction**
+  - Provide deal details.
+  - Include optional Strengths and Drawbacks.
+  - Indicate your disposition (Positive, Negative, or Neutral).
+
+- **Section 1: Borrower Overview and Deal Summary**
+  - Research borrower using provided documents and/or internet sources.
+  - Summarize key points about the borrower and the deal.
+
+- **Section 2: Pricing**
+  - Analyze Income Yield and Capital Yield data.
+  - Evaluate spreads:
+    - Above 2.5%: Very favorable (considering PD).
+    - Around 2.0%: Neutral.
+    - Below 2.0%: Less favorable.
+    - Below 1.50%: Undesirable (unless very low PD).
+
+- **Section 3: Financial Analysis**
+  - Provide "back of the envelope" financial analysis using uploaded files.
+  - Include relevant information such as:
+    - Debt/EBITDA tables for publicly traded proxies.
+    - Capitalization tables.
+    - Historical performance data.
+
+- **Section 4: Appendix**
+  - Include any additional helpful information about the credit.
+  - Use judgment to determine relevant content.
+
+Additional Notes:
+
+- Reference provided sample memos for structural inspiration.
+- Adapt your analysis based on the complexity and specifics of each deal.
+- Your ultimate goal is to facilitate a deeper understanding of complex loan offerings, making it more accessible and comprehensible.
+- Respond to queries effectively, incorporating feedback to enhance your accuracy.
+- Handle data securely and update your knowledge base with the latest research.
+- Maintain a feedback loop for continuous improvement and user support.
+"""
+
 # Function to upload file to S3
 def upload_to_s3(fileobj, bucket_name, object_name):
     try:
@@ -82,14 +143,6 @@ def get_text_from_response(job_id):
         if block['BlockType'] == 'LINE':
             text += block['Text'] + '\n'
     return text
-
-def wait_for_job_completion(job_id):
-    """Waits for the Textract job to complete and returns the status."""
-    while True:
-        status = is_job_complete(job_id)
-        if status == 'SUCCEEDED' or status == 'FAILED':
-            return status
-        time.sleep(5)  # Wait before checking the status again
 
 def main():
     st.title("AI Assistant - Memo Writer")
@@ -142,6 +195,9 @@ def main():
         else:
             # Job is still in progress, show waiting message
             slot1_status_placeholder.info("Slot 1: Extracting text... This may take a moment.")
+    elif 'slot1' in st.session_state.document_texts:
+        # Confirmation message if extraction is already done
+        slot1_status_placeholder.success("Slot 1: Document text extracted successfully.")
 
     # Slot 2 - Document Upload and Text Extraction
     st.subheader("Slot 2 [Suggested Upload = Term Sheet]")
@@ -182,6 +238,9 @@ def main():
         else:
             # Job is still in progress, show waiting message
             slot2_status_placeholder.info("Slot 2: Extracting text... This may take a moment.")
+    elif 'slot2' in st.session_state.document_texts:
+        # Confirmation message if extraction is already done
+        slot2_status_placeholder.success("Slot 2: Document text extracted successfully.")
 
     # Slot 3 - Pricing Data Input
     st.subheader("Slot 3 [Suggested Upload = Pricing Data]")
@@ -200,50 +259,58 @@ def main():
         slot3_preview_placeholder.text_area("Slot 3 Pricing Data", preview_text3, height=200, key="slot3_preview")
 
     # User input
-    user_message = st.text_input("Ask a question about cryptocurrency:", "What is mining?")
+    user_message = st.text_input("Enter any additional instructions or information:", "")
 
-    if st.button("Get Answer"):
-        with st.spinner("Processing your question..."):
+    if st.button("Generate Memo"):
+        with st.spinner("Generating your memo..."):
             # Include extracted texts as additional context if available
             additional_context = ""
             if 'slot1' in st.session_state.document_texts:
-                additional_context += f"\n\nAdditional context from Slot 1 document:\n{st.session_state.document_texts['slot1']}"
+                additional_context += f"\n\n[Marketing Materials]:\n{st.session_state.document_texts['slot1']}"
             if 'slot2' in st.session_state.document_texts:
-                additional_context += f"\n\nAdditional context from Slot 2 document:\n{st.session_state.document_texts['slot2']}"
+                additional_context += f"\n\n[Term Sheet]:\n{st.session_state.document_texts['slot2']}"
             if 'slot3' in st.session_state.document_texts:
-                additional_context += f"\n\nAdditional context from Slot 3 document:\n{st.session_state.document_texts['slot3']}"
+                additional_context += f"\n\n[Pricing Data]:\n{st.session_state.document_texts['slot3']}"
 
-            # Append additional context to the user message
-            if additional_context:
-                user_message += additional_context
+            # Prepare the prompt for the assistant
+            prompt = f"""
+{ASSISTANT_ROLE_DESCRIPTION}
+
+Please write an indication of interest memo based on the provided documents and data.
+
+{additional_context}
+
+{user_message}
+"""
 
             # Create a message in the thread
             message = client.beta.threads.messages.create(
                 thread_id=THREAD_ID,
                 role="user",
-                content=user_message
+                content=prompt
             )
 
-            # Run the assistant
+            # Run the assistant with the instructions
             run = client.beta.threads.runs.create(
                 thread_id=THREAD_ID,
                 assistant_id=ASSIS_ID,
-                instructions="Please address the user as Preston"
+                instructions="Please generate the memo as per the guidelines."
             )
 
             # Wait for the run to complete and get the response
             response = wait_for_run_completion(THREAD_ID, run.id)
 
             if response:
-                st.write("Assistant's Response:", response)
+                st.write("**Generated Memo:**")
+                st.write(response)
             else:
                 st.error("Failed to get a response. Please try again.")
 
-        # Optionally, display run steps (for debugging)
-        run_steps = client.beta.threads.runs.steps.list(thread_id=THREAD_ID, run_id=run.id)
-        st.write("Run Steps:", run_steps.data[0])
+            # Optionally, display run steps (for debugging)
+            # run_steps = client.beta.threads.runs.steps.list(thread_id=THREAD_ID, run_id=run.id)
+            # st.write("Run Steps:", run_steps.data[0])
 
-def wait_for_run_completion(thread_id, run_id, sleep_interval=2):
+def wait_for_run_completion(thread_id, run_id, sleep_interval=5):
     """Wait for a run to complete and return the response"""
     while True:
         try:
@@ -254,6 +321,7 @@ def wait_for_run_completion(thread_id, run_id, sleep_interval=2):
                 logging.info(f"Run completed in {formatted_elapsed_time}")
                 
                 messages = client.beta.threads.messages.list(thread_id=thread_id)
+                # Assuming the assistant's reply is the last message
                 last_message = messages.data[0]
                 response = last_message.content[0].text.value
                 return response
