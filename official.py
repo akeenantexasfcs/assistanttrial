@@ -15,7 +15,7 @@ from botocore.exceptions import NoCredentialsError
 from io import BytesIO
 
 # Use Streamlit's secrets management
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+openai.api_key = st.secrets["myapi"]["OPENAI_API_KEY"]
 
 # Initialize OpenAI client
 client = openai.OpenAI()
