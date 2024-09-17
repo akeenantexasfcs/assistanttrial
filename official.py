@@ -39,7 +39,7 @@ MODEL = "GPT-4o-mini"
 THREAD_ID = "thread_F7S14lJmDKPJJKSyKzZ70or4"
 ASSIS_ID = "asst_xrWMge210o7NV2yVLrKZaV8B"
 
-# Assistant Role Description
+# Assistant Role Description (unchanged)
 ASSISTANT_ROLE_DESCRIPTION = """
 You are an expert Credit Analyst AI assistant specialized in writing indication of interest memos for the Executive Loan Committee. Your primary function is to help decide whether to participate in loan offerings. You should have Action Required with a date and time of response being needed. Unless that is supplied to you, use a placeholder.
 
@@ -131,20 +131,35 @@ def get_text_from_response(job_id):
     response = textract.get_document_text_detection(JobId=job_id)
     blocks = response['Blocks']
     text = ''
-    
+
     # Handle pagination
     next_token = response.get('NextToken')
     while next_token:
         response = textract.get_document_text_detection(JobId=job_id, NextToken=next_token)
         blocks.extend(response['Blocks'])
         next_token = response.get('NextToken')
-    
+
     for block in blocks:
         if block['BlockType'] == 'LINE':
             text += block['Text'] + '\n'
     return text
 
 def main():
+    # Password protection
+    if 'authenticated' not in st.session_state:
+        st.session_state['authenticated'] = False
+
+    if not st.session_state['authenticated']:
+        password_placeholder = st.empty()
+        password = password_placeholder.text_input("Enter password to access the app:", type="password")
+        if password == st.secrets["app_password"]:
+            st.session_state['authenticated'] = True
+            password_placeholder.empty()
+            st.success("Authentication successful!")
+        else:
+            st.warning("Please enter the correct password.")
+            return
+
     st.title("AI Assistant - Memo Writer")
 
     # AWS S3 bucket name
@@ -305,10 +320,6 @@ Please write an indication of interest memo based on the provided documents and 
                 st.write(response)
             else:
                 st.error("Failed to get a response. Please try again.")
-
-            # Optionally, display run steps (for debugging)
-            # run_steps = client.beta.threads.runs.steps.list(thread_id=THREAD_ID, run_id=run.id)
-            # st.write("Run Steps:", run_steps.data[0])
 
 def wait_for_run_completion(thread_id, run_id, sleep_interval=5):
     """Wait for a run to complete and return the response"""
