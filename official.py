@@ -21,7 +21,7 @@ client = openai.OpenAI()
 logging.basicConfig(level=logging.INFO)
 
 # Constants
-MODEL = "GPT-4o mini"
+MODEL = "GPT-4o-mini"
 FILEPATH = "./cryptocurrency.pdf"
 THREAD_ID = "thread_i6r0bbKnbvhjsBtkunMeyBm7"
 ASSIS_ID = "asst_xrWMge210o7NV2yVLrKZaV8B"
@@ -53,7 +53,7 @@ def wait_for_run_completion(thread_id, run_id, sleep_interval=5):
         time.sleep(sleep_interval)
 
 def main():
-    st.title("OpenAI Assistant - Cryptocurrency Study Buddy")
+    st.title("AI Assistant - Memo Writer")
 
     # Upload file (you might want to do this only once, not on every run)
     # file_object = upload_file()
@@ -74,7 +74,7 @@ def main():
             run = client.beta.threads.runs.create(
                 thread_id=THREAD_ID,
                 assistant_id=ASSIS_ID,
-                instructions="Please address the user as Walter"
+                instructions="Please address the user as Preston"
             )
 
             # Wait for the run to complete and get the response
