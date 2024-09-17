@@ -21,7 +21,7 @@ client = openai.OpenAI()
 logging.basicConfig(level=logging.INFO)
 
 # Constants
-MODEL = "gpt-3.5-turbo"
+MODEL = "GPT-4o mini"
 FILEPATH = "./cryptocurrency.pdf"
 THREAD_ID = "thread_i6r0bbKnbvhjsBtkunMeyBm7"
 ASSIS_ID = "asst_xrWMge210o7NV2yVLrKZaV8B"
