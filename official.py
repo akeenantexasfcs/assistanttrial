@@ -5,105 +5,90 @@
 
 
 import os
-from dotenv import load_dotenv
 import openai
-import requests
-import json
-
 import time
 import logging
 from datetime import datetime
 import streamlit as st
 
+# Use Streamlit's secrets management
+openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-load_dotenv()
-
+# Initialize OpenAI client
 client = openai.OpenAI()
 
-model = "gpt-4o-mini"  # "gpt-3.5-turbo-16k"
+# Set up logging
+logging.basicConfig(level=logging.INFO)
 
-# Step 1. Upload a file to OpenaI embeddings ===
-filepath = "./cryptocurrency.pdf"
-file_object = client.files.create(file=open(filepath, "rb"), purpose="assistants")
+# Constants
+MODEL = "gpt-3.5-turbo"
+FILEPATH = "./cryptocurrency.pdf"
+THREAD_ID = "thread_i6r0bbKnbvhjsBtkunMeyBm7"
+ASSIS_ID = "asst_xrWMge210o7NV2yVLrKZaV8B"
 
-# Step 2 - Create an assistant
-# assistant = client.beta.assistants.create(
-#     name="Studdy Buddy",
-#     instructions="""You are a helpful study assistant who knows a lot about understanding research papers.
-#     Your role is to summarize papers, clarify terminology within context, and extract key figures and data.
-#     Cross-reference information for additional insights and answer related questions comprehensively.
-#     Analyze the papers, noting strengths and limitations.
-#     Respond to queries effectively, incorporating feedback to enhance your accuracy.
-#     Handle data securely and update your knowledge base with the latest research.
-#     Adhere to ethical standards, respect intellectual property, and provide users with guidance on any limitations.
-#     Maintain a feedback loop for continuous improvement and user support.
-#     Your ultimate goal is to facilitate a deeper understanding of complex scientific material, making it more accessible and comprehensible.""",
-#     tools=[{"type": "retrieval"}],
-#     model=model,
-#     file_ids=[file_object.id],
-# )
+def upload_file():
+    """Upload a file to OpenAI embeddings"""
+    with open(FILEPATH, "rb") as file:
+        return client.files.create(file=file, purpose="assistants")
 
-# === Get the Assis ID ===
-# assis_id = assistant.id
-# print(assis_id)
-
-# == Hardcoded ids to be used once the first code run is done and the assistant was created
-thread_id = "thread_i6r0bbKnbvhjsBtkunMeyBm7"
-assis_id = "asst_xrWMge210o7NV2yVLrKZaV8B"
-
-# == Step 3. Create a Thread
-message = "What is mining?"
-
-# thread = client.beta.threads.create()
-# thread_id = thread.id
-# print(thread_id)
-
-message = client.beta.threads.messages.create(
-    thread_id=thread_id, role="user", content=message
-)
-
-# == Run the Assistant
-run = client.beta.threads.runs.create(
-    thread_id=thread_id,
-    assistant_id=assis_id,
-    instructions="Please address the user as Walter",
-)
-
-
-def wait_for_run_completion(client, thread_id, run_id, sleep_interval=5):
-    """
-    Waits for a run to complete and prints the elapsed time.:param client: The OpenAI client object.
-    :param thread_id: The ID of the thread.
-    :param run_id: The ID of the run.
-    :param sleep_interval: Time in seconds to wait between checks.
-    """
+def wait_for_run_completion(thread_id, run_id, sleep_interval=5):
+    """Wait for a run to complete and return the response"""
     while True:
         try:
             run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run_id)
             if run.completed_at:
                 elapsed_time = run.completed_at - run.created_at
-                formatted_elapsed_time = time.strftime(
-                    "%H:%M:%S", time.gmtime(elapsed_time)
-                )
-                print(f"Run completed in {formatted_elapsed_time}")
+                formatted_elapsed_time = time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
                 logging.info(f"Run completed in {formatted_elapsed_time}")
-                # Get messages here once Run is completed!
+                
                 messages = client.beta.threads.messages.list(thread_id=thread_id)
                 last_message = messages.data[0]
                 response = last_message.content[0].text.value
-                print(f"Assistant Response: {response}")
-                break
+                return response
         except Exception as e:
             logging.error(f"An error occurred while retrieving the run: {e}")
-            break
+            return None
+        
         logging.info("Waiting for run to complete...")
         time.sleep(sleep_interval)
 
+def main():
+    st.title("OpenAI Assistant - Cryptocurrency Study Buddy")
 
-# == Run it
-wait_for_run_completion(client=client, thread_id=thread_id, run_id=run.id)
+    # Upload file (you might want to do this only once, not on every run)
+    # file_object = upload_file()
 
-# === Check the Run Steps - LOGS ===
-run_steps = client.beta.threads.runs.steps.list(thread_id=thread_id, run_id=run.id)
-print(f"Run Steps --> {run_steps.data[0]}")
+    # User input
+    user_message = st.text_input("Ask a question about cryptocurrency:", "What is mining?")
+
+    if st.button("Get Answer"):
+        with st.spinner("Processing your question..."):
+            # Create a message in the thread
+            message = client.beta.threads.messages.create(
+                thread_id=THREAD_ID,
+                role="user",
+                content=user_message
+            )
+
+            # Run the assistant
+            run = client.beta.threads.runs.create(
+                thread_id=THREAD_ID,
+                assistant_id=ASSIS_ID,
+                instructions="Please address the user as Walter"
+            )
+
+            # Wait for the run to complete and get the response
+            response = wait_for_run_completion(THREAD_ID, run.id)
+
+            if response:
+                st.write("Assistant's Response:", response)
+            else:
+                st.error("Failed to get a response. Please try again.")
+
+        # Optionally, display run steps (for debugging)
+        run_steps = client.beta.threads.runs.steps.list(thread_id=THREAD_ID, run_id=run.id)
+        st.write("Run Steps:", run_steps.data[0])
+
+if __name__ == "__main__":
+    main()
 
