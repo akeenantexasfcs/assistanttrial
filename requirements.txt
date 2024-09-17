@@ -7,3 +7,4 @@ openpyxl
 Pillow
 python-docx
 xlsxwriter
+pdf2image
