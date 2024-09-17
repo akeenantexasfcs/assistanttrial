@@ -17,8 +17,8 @@ from io import BytesIO
 # Use Streamlit's secrets management
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# Initialize OpenAI client
-client = openai.OpenAI()
+# Constants
+MODEL = "GPT-4o-mini"  # Keeping the original model as per your request
 
 # Initialize boto3 session with credentials from secrets.toml
 session = boto3.Session(
@@ -28,194 +28,117 @@ session = boto3.Session(
 )
 
 # Create AWS clients
-s3 = session.client('s3')
 textract = session.client('textract')
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 
-# Constants
-MODEL = "GPT-4o-mini"
-THREAD_ID = "thread_F7S14lJmDKPJJKSyKzZ70or4"
-ASSIS_ID = "asst_xrWMge210o7NV2yVLrKZaV8B"
-
-def upload_file():
-    """Upload a file to OpenAI embeddings"""
-    with open(FILEPATH, "rb") as file:
-        return client.files.create(file=file, purpose="assistants")
-
-def wait_for_run_completion(thread_id, run_id, sleep_interval=5):
-    """Wait for a run to complete and return the response"""
-    while True:
-        try:
-            run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run_id)
-            if run.completed_at:
-                elapsed_time = run.completed_at - run.created_at
-                formatted_elapsed_time = time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
-                logging.info(f"Run completed in {formatted_elapsed_time}")
-                
-                messages = client.beta.threads.messages.list(thread_id=thread_id)
-                last_message = messages.data[0]
-                response = last_message.content[0].text.value
-                return response
-        except Exception as e:
-            logging.error(f"An error occurred while retrieving the run: {e}")
-            return None
-        
-        logging.info("Waiting for run to complete...")
-        time.sleep(sleep_interval)
-
-# Function to upload file to S3
-def upload_to_s3(fileobj, bucket_name, object_name):
-    try:
-        s3.upload_fileobj(fileobj, bucket_name, object_name)
-        print(f"File uploaded to {bucket_name}/{object_name}")
-    except NoCredentialsError:
-        print("AWS credentials not available.")
-
-# Function to start Textract job
-def start_text_detection(bucket_name, object_name):
-    response = textract.start_document_text_detection(
-        DocumentLocation={
-            'S3Object': {
-                'Bucket': bucket_name,
-                'Name': object_name
-            }
-        }
+# Function to extract text synchronously
+def extract_text_synchronously(document_bytes):
+    response = textract.detect_document_text(
+        Document={'Bytes': document_bytes}
     )
-    return response['JobId']
-
-# Function to check if the Textract job is complete
-def is_job_complete(job_id):
-    while True:
-        response = textract.get_document_text_detection(JobId=job_id)
-        status = response['JobStatus']
-        if status == 'SUCCEEDED':
-            return True
-        elif status == 'FAILED':
-            raise Exception("Text detection job failed.")
-        else:
-            time.sleep(5)  # Wait before polling again
-
-# Function to retrieve and parse the Textract response
-def get_text_from_response(job_id):
-    response = textract.get_document_text_detection(JobId=job_id)
-    blocks = response['Blocks']
     text = ''
-    
-    # Handle pagination
-    next_token = response.get('NextToken')
-    while next_token:
-        response = textract.get_document_text_detection(JobId=job_id, NextToken=next_token)
-        blocks.extend(response['Blocks'])
-        next_token = response.get('NextToken')
-    
-    for block in blocks:
+    for block in response['Blocks']:
         if block['BlockType'] == 'LINE':
             text += block['Text'] + '\n'
     return text
 
+def truncate_text(text, max_chars=6000):
+    """Truncate text to a maximum number of characters."""
+    if len(text) > max_chars:
+        return text[:max_chars] + '...'
+    else:
+        return text
+
+def get_assistant_response(user_message, additional_context=None):
+    # Construct the messages array
+    messages = [
+        {"role": "system", "content": "Please address the user as Preston."},
+        {"role": "user", "content": user_message}
+    ]
+
+    # Include additional context if available
+    if additional_context:
+        # Truncate the additional context if necessary
+        additional_context = truncate_text(additional_context, max_chars=6000)
+        messages.append({"role": "system", "content": additional_context})
+
+    # Make the API call
+    response = openai.ChatCompletion.create(
+        model=MODEL,
+        messages=messages,
+        temperature=0.7  # Adjust as needed
+    )
+
+    # Extract the assistant's reply
+    assistant_reply = response['choices'][0]['message']['content']
+    return assistant_reply
+
 def main():
     st.title("AI Assistant - Memo Writer")
 
-    # AWS S3 bucket name
-    bucket_name = st.secrets["aws"]["s3_bucket_name"]
-
     # Slot 1 - Document Upload and Text Extraction
     st.subheader("Slot 1 [Suggested Upload = Marketing Materials]")
-    uploaded_file1 = st.file_uploader("Upload a document for Slot 1", type=['pdf', 'docx', 'png', 'jpg'], key="slot1")
+    uploaded_file1 = st.file_uploader("Upload a document for Slot 1", type=['pdf', 'png', 'jpg'], key="slot1")
 
     document_text1 = None
 
     if uploaded_file1 is not None:
-        # Upload the file to S3
-        object_name1 = uploaded_file1.name
-        upload_to_s3(uploaded_file1, bucket_name, object_name1)
-
-        # Start Textract job
-        job_id1 = start_text_detection(bucket_name, object_name1)
-
-        # Wait for the job to complete
-        if is_job_complete(job_id1):
-            # Get the extracted text
-            document_text1 = get_text_from_response(job_id1)
+        # Read file content into memory
+        document_bytes1 = uploaded_file1.read()
+        try:
+            with st.spinner("Slot 1: Extracting text from the document..."):
+                document_text1 = extract_text_synchronously(document_bytes1)
             st.success("Slot 1: Document text extracted successfully.")
 
             # Display a preview of the extracted text
             st.subheader("Slot 1 - Preview of Extracted Text:")
             preview_text1 = document_text1[:500] + '...' if len(document_text1) > 500 else document_text1
             st.text_area("Slot 1 Extracted Text", preview_text1, height=200, key="slot1_preview")
-        else:
-            st.error("Slot 1: Failed to extract text from the document.")
+        except Exception as e:
+            st.error(f"Slot 1: Failed to extract text from the document. Error: {e}")
 
     # Slot 2 - Document Upload and Text Extraction
     st.subheader("Slot 2 [Suggested Upload = Term Sheet]")
-    uploaded_file2 = st.file_uploader("Upload a document for Slot 2", type=['pdf', 'docx', 'png', 'jpg'], key="slot2")
+    uploaded_file2 = st.file_uploader("Upload a document for Slot 2", type=['pdf', 'png', 'jpg'], key="slot2")
 
     document_text2 = None
 
     if uploaded_file2 is not None:
-        # Upload the file to S3
-        object_name2 = uploaded_file2.name
-        upload_to_s3(uploaded_file2, bucket_name, object_name2)
-
-        # Start Textract job
-        job_id2 = start_text_detection(bucket_name, object_name2)
-
-        # Wait for the job to complete
-        if is_job_complete(job_id2):
-            # Get the extracted text
-            document_text2 = get_text_from_response(job_id2)
+        # Read file content into memory
+        document_bytes2 = uploaded_file2.read()
+        try:
+            with st.spinner("Slot 2: Extracting text from the document..."):
+                document_text2 = extract_text_synchronously(document_bytes2)
             st.success("Slot 2: Document text extracted successfully.")
 
             # Display a preview of the extracted text
             st.subheader("Slot 2 - Preview of Extracted Text:")
             preview_text2 = document_text2[:500] + '...' if len(document_text2) > 500 else document_text2
             st.text_area("Slot 2 Extracted Text", preview_text2, height=200, key="slot2_preview")
-        else:
-            st.error("Slot 2: Failed to extract text from the document.")
+        except Exception as e:
+            st.error(f"Slot 2: Failed to extract text from the document. Error: {e}")
 
     # User input
     user_message = st.text_input("Ask a question about cryptocurrency:", "What is mining?")
 
     if st.button("Get Answer"):
         with st.spinner("Processing your question..."):
-            # Include extracted texts as additional context if available
+            # Combine extracted texts from both slots
             additional_context = ""
             if document_text1:
-                additional_context += f"\n\nAdditional context from Slot 1 document:\n{document_text1}"
+                additional_context += f"Additional context from Slot 1 document:\n{document_text1}\n\n"
             if document_text2:
-                additional_context += f"\n\nAdditional context from Slot 2 document:\n{document_text2}"
+                additional_context += f"Additional context from Slot 2 document:\n{document_text2}\n\n"
 
-            # Append additional context to the user message
-            if additional_context:
-                user_message += additional_context
-
-            # Create a message in the thread
-            message = client.beta.threads.messages.create(
-                thread_id=THREAD_ID,
-                role="user",
-                content=user_message
-            )
-
-            # Run the assistant
-            run = client.beta.threads.runs.create(
-                thread_id=THREAD_ID,
-                assistant_id=ASSIS_ID,
-                instructions="Please address the user as Preston"
-            )
-
-            # Wait for the run to complete and get the response
-            response = wait_for_run_completion(THREAD_ID, run.id)
+            # Get the assistant's response
+            response = get_assistant_response(user_message, additional_context)
 
             if response:
                 st.write("Assistant's Response:", response)
             else:
                 st.error("Failed to get a response. Please try again.")
-
-        # Optionally, display run steps (for debugging)
-        run_steps = client.beta.threads.runs.steps.list(thread_id=THREAD_ID, run_id=run.id)
-        st.write("Run Steps:", run_steps.data[0])
 
 if __name__ == "__main__":
     main()
