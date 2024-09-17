@@ -118,42 +118,78 @@ def get_text_from_response(job_id):
 def main():
     st.title("AI Assistant - Memo Writer")
 
-    # Optional document upload
-    uploaded_file = st.file_uploader("Upload a document (PDF, DOCX, PNG, JPG)", type=['pdf', 'docx', 'png', 'jpg'])
+    # AWS S3 bucket name
+    bucket_name = st.secrets["aws"]["s3_bucket_name"]
 
-    document_text = None
+    # Slot 1 - Document Upload and Text Extraction
+    st.subheader("Slot 1 [Suggested Upload = Marketing Materials]")
+    uploaded_file1 = st.file_uploader("Upload a document for Slot 1", type=['pdf', 'docx', 'png', 'jpg'], key="slot1")
 
-    if uploaded_file is not None:
+    document_text1 = None
+
+    if uploaded_file1 is not None:
         # Upload the file to S3
-        bucket_name = st.secrets["aws"]["s3_bucket_name"]
-        object_name = uploaded_file.name
-        upload_to_s3(uploaded_file, bucket_name, object_name)
+        object_name1 = uploaded_file1.name
+        upload_to_s3(uploaded_file1, bucket_name, object_name1)
 
         # Start Textract job
-        job_id = start_text_detection(bucket_name, object_name)
+        job_id1 = start_text_detection(bucket_name, object_name1)
 
         # Wait for the job to complete
-        if is_job_complete(job_id):
+        if is_job_complete(job_id1):
             # Get the extracted text
-            document_text = get_text_from_response(job_id)
-            st.success("Document text extracted successfully.")
+            document_text1 = get_text_from_response(job_id1)
+            st.success("Slot 1: Document text extracted successfully.")
 
             # Display a preview of the extracted text
-            st.subheader("Preview of Extracted Text:")
-            # Show only the first 500 characters to avoid overwhelming the user
-            preview_text = document_text[:500] + '...' if len(document_text) > 500 else document_text
-            st.text_area("Extracted Text", preview_text, height=200)
+            st.subheader("Slot 1 - Preview of Extracted Text:")
+            preview_text1 = document_text1[:500] + '...' if len(document_text1) > 500 else document_text1
+            st.text_area("Slot 1 Extracted Text", preview_text1, height=200, key="slot1_preview")
         else:
-            st.error("Failed to extract text from the document.")
+            st.error("Slot 1: Failed to extract text from the document.")
+
+    # Slot 2 - Document Upload and Text Extraction
+    st.subheader("Slot 2 [Suggested Upload = Term Sheet]")
+    uploaded_file2 = st.file_uploader("Upload a document for Slot 2", type=['pdf', 'docx', 'png', 'jpg'], key="slot2")
+
+    document_text2 = None
+
+    if uploaded_file2 is not None:
+        # Upload the file to S3
+        object_name2 = uploaded_file2.name
+        upload_to_s3(uploaded_file2, bucket_name, object_name2)
+
+        # Start Textract job
+        job_id2 = start_text_detection(bucket_name, object_name2)
+
+        # Wait for the job to complete
+        if is_job_complete(job_id2):
+            # Get the extracted text
+            document_text2 = get_text_from_response(job_id2)
+            st.success("Slot 2: Document text extracted successfully.")
+
+            # Display a preview of the extracted text
+            st.subheader("Slot 2 - Preview of Extracted Text:")
+            preview_text2 = document_text2[:500] + '...' if len(document_text2) > 500 else document_text2
+            st.text_area("Slot 2 Extracted Text", preview_text2, height=200, key="slot2_preview")
+        else:
+            st.error("Slot 2: Failed to extract text from the document.")
 
     # User input
     user_message = st.text_input("Ask a question about cryptocurrency:", "What is mining?")
 
     if st.button("Get Answer"):
         with st.spinner("Processing your question..."):
-            # If document_text is available, include it as additional context
-            if document_text:
-                user_message += f"\n\nAdditional context from uploaded document:\n{document_text}"
+            # Include extracted texts as additional context if available
+            additional_context = ""
+            if document_text1:
+                additional_context += f"\n\nAdditional context from Slot 1 document:\n{document_text1}"
+            if document_text2:
+                additional_context += f"\n\nAdditional context from Slot 2 document:\n{document_text2}"
+
+            # Append additional context to the user message
+            if additional_context:
+                user_message += additional_context
 
             # Create a message in the thread
             message = client.beta.threads.messages.create(
