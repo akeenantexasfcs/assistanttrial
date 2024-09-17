@@ -44,21 +44,24 @@ ASSISTANT_ROLE_DESCRIPTION = """
 You are an expert Credit Analyst AI assistant specialized in writing indication of interest memos for the Executive Loan Committee. Your primary function is to help decide whether to participate in loan offerings. You should have Action Required with a date and time of response being needed. Unless that is supplied to you, use a placeholder.
 
 Key Responsibilities:
+
 - Write clear, concise memos ranging from 250 to 1,000 words, depending on deal complexity.
 - Use bullet points for clarity.
 - Provide insights on loan ratings and their implications.
 
 Loan Rating Guidelines:
+
 - **Probability of Default (PD):**
   - PD7 or less: Viewed positively.
   - PD8: Generally neutral.
   - PD9 or higher: Viewed negatively.
-  
+
 - **Loss Given Default (LGD):**
   - Preferred ratings: B or D.
   - Other ratings: Less favorable.
 
 Memo Structure:
+
 - **Section 0: Introduction**
   - Provide deal details.
   - Include optional Strengths and Drawbacks.
@@ -85,6 +88,16 @@ Memo Structure:
 
 - **Section 4: Appendix**
   - Include any additional helpful information about the credit.
+  - Use judgment to determine relevant content.
+
+Additional Notes:
+
+- Reference provided sample memos for structural inspiration.
+- Adapt your analysis based on the complexity and specifics of each deal.
+- Your ultimate goal is to facilitate a deeper understanding of complex loan offerings, making it more accessible and comprehensible.
+- Respond to queries effectively, incorporating feedback to enhance your accuracy.
+- Handle data securely and update your knowledge base with the latest research.
+- Maintain a feedback loop for continuous improvement and user support.
 """
 
 # Function to upload file to S3
@@ -131,75 +144,172 @@ def get_text_from_response(job_id):
             text += block['Text'] + '\n'
     return text
 
-# Password check function
-def check_password():
-    def password_entered():
-        if st.session_state["password"] == st.secrets["APP_PASSWORD"]:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # don't store password
-        else:
-            st.session_state["password_correct"] = False
+def wait_for_run_completion(thread_id, run_id, sleep_interval=5):
+    """Wait for a run to complete and return the response"""
+    while True:
+        try:
+            run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run_id)
+            if run.completed_at:
+                elapsed_time = run.completed_at - run.created_at
+                formatted_elapsed_time = time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
+                logging.info(f"Run completed in {formatted_elapsed_time}")
+                
+                messages = client.beta.threads.messages.list(thread_id=thread_id)
+                # Assuming the assistant's reply is the last message
+                last_message = messages.data[0]
+                response = last_message.content[0].text.value
+                return response
+        except Exception as e:
+            logging.error(f"An error occurred while retrieving the run: {e}")
+            return None
+        
+        logging.info("Waiting for run to complete...")
+        time.sleep(sleep_interval)
 
-    if "password_correct" not in st.session_state:
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        return False
-    elif not st.session_state["password_correct"]:
-        st.text_input("Password", type="password", on_change=password_entered, key="password")
-        st.error("😕 Password incorrect")
-        return False
-    else:
-        return True
-
-# Main function
 def main():
+    # Password protection
+    if 'authenticated' not in st.session_state:
+        st.session_state['authenticated'] = False
+
+    if not st.session_state['authenticated']:
+        password = st.text_input("Enter password:", type="password")
+        if st.button("Submit"):
+            if password == st.secrets["APP_PASSWORD"]:
+                st.session_state['authenticated'] = True
+                st.success("Access granted")
+            else:
+                st.error("Password is incorrect")
+        return
+
     st.title("AI Assistant - Memo Writer")
 
-    if not check_password():
-        st.stop()
-
+    # AWS S3 bucket name
     bucket_name = st.secrets["aws"]["s3_bucket_name"]
 
+    # Initialize session state for job IDs and extracted texts
     if 'job_ids' not in st.session_state:
         st.session_state['job_ids'] = {}
     if 'document_texts' not in st.session_state:
         st.session_state['document_texts'] = {}
 
-    # Slot 1 Document Upload and Text Extraction
+    # Slot 1 - Document Upload and Text Extraction
     st.subheader("Slot 1 [Suggested Upload = Marketing Materials]")
     uploaded_file1 = st.file_uploader("Upload a document for Slot 1", type=['pdf', 'docx', 'png', 'jpg'], key="slot1")
 
-    if uploaded_file1 and 'slot1' not in st.session_state.document_texts:
+    # Placeholder for Slot 1 status and preview
+    slot1_status_placeholder = st.empty()
+    slot1_preview_placeholder = st.empty()
+
+    if uploaded_file1 is not None and 'slot1' not in st.session_state.document_texts:
+        # Upload the file to S3
         object_name1 = uploaded_file1.name
         upload_to_s3(uploaded_file1, bucket_name, object_name1)
+
+        # Start Textract job and save Job ID in session state
         job_id1 = start_text_detection(bucket_name, object_name1)
         st.session_state.job_ids['slot1'] = job_id1
         st.session_state['slot1_object_name'] = object_name1
-        st.info("Slot 1: Extracting text...")
+        slot1_status_placeholder.info("Slot 1: Extracting text... This may take a moment.")
 
+    # Check if Slot 1 job is in progress
     if 'slot1' in st.session_state.job_ids:
         job_id1 = st.session_state.job_ids['slot1']
         status = is_job_complete(job_id1)
         if status == 'SUCCEEDED':
             document_text1 = get_text_from_response(job_id1)
             st.session_state.document_texts['slot1'] = document_text1
-            st.success("Slot 1: Text extracted successfully.")
-        elif status == 'FAILED':
-            st.error("Slot 1: Failed to extract text.")
+            del st.session_state.job_ids['slot1']  # Remove job ID as it's completed
+            slot1_status_placeholder.success("Slot 1: Document text extracted successfully.")
 
-    # Similarly handle Slot 2 and Slot 3...
+            # Display a preview of the extracted text
+            slot1_preview_placeholder.subheader("Slot 1 - Preview of Extracted Text:")
+            preview_text1 = document_text1[:500] + '...' if len(document_text1) > 500 else document_text1
+            slot1_preview_placeholder.text_area("Slot 1 Extracted Text", preview_text1, height=200, key="slot1_preview")
+        elif status == 'FAILED':
+            slot1_status_placeholder.error("Slot 1: Failed to extract text from the document.")
+            del st.session_state.job_ids['slot1']  # Remove job ID as it's completed
+        else:
+            # Job is still in progress, show waiting message
+            slot1_status_placeholder.info("Slot 1: Extracting text... This may take a moment.")
+    elif 'slot1' in st.session_state.document_texts:
+        # Confirmation message if extraction is already done
+        slot1_status_placeholder.success("Slot 1: Document text extracted successfully.")
+
+    # Slot 2 - Document Upload and Text Extraction
+    st.subheader("Slot 2 [Suggested Upload = Term Sheet]")
+    uploaded_file2 = st.file_uploader("Upload a document for Slot 2", type=['pdf', 'docx', 'png', 'jpg'], key="slot2")
+
+    # Placeholder for Slot 2 status and preview
+    slot2_status_placeholder = st.empty()
+    slot2_preview_placeholder = st.empty()
+
+    if uploaded_file2 is not None and 'slot2' not in st.session_state.document_texts:
+        # Upload the file to S3
+        object_name2 = uploaded_file2.name
+        upload_to_s3(uploaded_file2, bucket_name, object_name2)
+
+        # Start Textract job and save Job ID in session state
+        job_id2 = start_text_detection(bucket_name, object_name2)
+        st.session_state.job_ids['slot2'] = job_id2
+        st.session_state['slot2_object_name'] = object_name2
+        slot2_status_placeholder.info("Slot 2: Extracting text... This may take a moment.")
+
+    # Check if Slot 2 job is in progress
+    if 'slot2' in st.session_state.job_ids:
+        job_id2 = st.session_state.job_ids['slot2']
+        status = is_job_complete(job_id2)
+        if status == 'SUCCEEDED':
+            document_text2 = get_text_from_response(job_id2)
+            st.session_state.document_texts['slot2'] = document_text2
+            del st.session_state.job_ids['slot2']  # Remove job ID as it's completed
+            slot2_status_placeholder.success("Slot 2: Document text extracted successfully.")
+
+            # Display a preview of the extracted text
+            slot2_preview_placeholder.subheader("Slot 2 - Preview of Extracted Text:")
+            preview_text2 = document_text2[:500] + '...' if len(document_text2) > 500 else document_text2
+            slot2_preview_placeholder.text_area("Slot 2 Extracted Text", preview_text2, height=200, key="slot2_preview")
+        elif status == 'FAILED':
+            slot2_status_placeholder.error("Slot 2: Failed to extract text from the document.")
+            del st.session_state.job_ids['slot2']  # Remove job ID as it's completed
+        else:
+            # Job is still in progress, show waiting message
+            slot2_status_placeholder.info("Slot 2: Extracting text... This may take a moment.")
+    elif 'slot2' in st.session_state.document_texts:
+        # Confirmation message if extraction is already done
+        slot2_status_placeholder.success("Slot 2: Document text extracted successfully.")
+
+    # Slot 3 - Pricing Data Input
+    st.subheader("Slot 3 [Suggested Upload = Pricing Data]")
+    pricing_data = st.text_area("Paste in pricing data for the loan", "", height=200, key="slot3")
+
+    # Placeholder for Slot 3 preview
+    slot3_preview_placeholder = st.empty()
+
+    if pricing_data:
+        # Store the pricing data in session state
+        st.session_state.document_texts['slot3'] = pricing_data
+
+        # Display a preview of the pricing data
+        slot3_preview_placeholder.subheader("Slot 3 - Preview of Pricing Data:")
+        preview_text3 = pricing_data[:500] + '...' if len(pricing_data) > 500 else pricing_data
+        slot3_preview_placeholder.text_area("Slot 3 Pricing Data", preview_text3, height=200, key="slot3_preview")
+
+    # User input
+    user_message = st.text_input("Enter any additional instructions or information:", "")
 
     if st.button("Generate Memo"):
-        additional_context = ""
-        if 'slot1' in st.session_state.document_texts:
-            additional_context += f"\n\n[Marketing Materials]:\n{st.session_state.document_texts['slot1']}"
-        if 'slot2' in st.session_state.document_texts:
-            additional_context += f"\n\n[Term Sheet]:\n{st.session_state.document_texts['slot2']}"
-        if 'slot3' in st.session_state.document_texts:
-            additional_context += f"\n\n[Pricing Data]:\n{st.session_state.document_texts['slot3']}"
+        with st.spinner("Generating your memo..."):
+            # Include extracted texts as additional context if available
+            additional_context = ""
+            if 'slot1' in st.session_state.document_texts:
+                additional_context += f"\n\n[Marketing Materials]:\n{st.session_state.document_texts['slot1']}"
+            if 'slot2' in st.session_state.document_texts:
+                additional_context += f"\n\n[Term Sheet]:\n{st.session_state.document_texts['slot2']}"
+            if 'slot3' in st.session_state.document_texts:
+                additional_context += f"\n\n[Pricing Data]:\n{st.session_state.document_texts['slot3']}"
 
-        user_message = st.text_input("Enter any additional instructions or information:", "")
-
-        prompt = f"""
+            # Prepare the prompt for the assistant
+            prompt = f"""
 {ASSISTANT_ROLE_DESCRIPTION}
 
 Please write an indication of interest memo based on the provided documents and data.
@@ -208,30 +318,29 @@ Please write an indication of interest memo based on the provided documents and 
 
 {user_message}
 """
-        message = client.beta.threads.messages.create(thread_id=THREAD_ID, role="user", content=prompt)
-        run = client.beta.threads.runs.create(thread_id=THREAD_ID, assistant_id=ASSIS_ID, instructions="Generate memo.")
-        
-        response = wait_for_run_completion(THREAD_ID, run.id)
-        if response:
-            st.write("**Generated Memo:**")
-            st.write(response)
 
-# Function to wait for the run to complete
-def wait_for_run_completion(thread_id, run_id, sleep_interval=5):
-    while True:
-        try:
-            run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run_id)
-            if run.completed_at:
-                elapsed_time = run.completed_at - run.created_at
-                logging.info(f"Run completed in {elapsed_time}")
-                messages = client.beta.threads.messages.list(thread_id=thread_id)
-                last_message = messages.data[0]
-                response = last_message.content[0].text.value
-                return response
-        except Exception as e:
-            logging.error(f"Error: {e}")
-            return None
-        time.sleep(sleep_interval)
+            # Create a message in the thread
+            message = client.beta.threads.messages.create(
+                thread_id=THREAD_ID,
+                role="user",
+                content=prompt
+            )
+
+            # Run the assistant with the instructions
+            run = client.beta.threads.runs.create(
+                thread_id=THREAD_ID,
+                assistant_id=ASSIS_ID,
+                instructions="Please generate the memo as per the guidelines."
+            )
+
+            # Wait for the run to complete and get the response
+            response = wait_for_run_completion(THREAD_ID, run.id)
+
+            if response:
+                st.write("**Generated Memo:**")
+                st.write(response)
+            else:
+                st.error("Failed to get a response. Please try again.")
 
 if __name__ == "__main__":
     main()
