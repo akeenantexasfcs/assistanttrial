@@ -144,43 +144,7 @@ def get_text_from_response(job_id):
             text += block['Text'] + '\n'
     return text
 
-def wait_for_run_completion(thread_id, run_id, sleep_interval=5):
-    """Wait for a run to complete and return the response"""
-    while True:
-        try:
-            run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run_id)
-            if run.completed_at:
-                elapsed_time = run.completed_at - run.created_at
-                formatted_elapsed_time = time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
-                logging.info(f"Run completed in {formatted_elapsed_time}")
-                
-                messages = client.beta.threads.messages.list(thread_id=thread_id)
-                # Assuming the assistant's reply is the last message
-                last_message = messages.data[0]
-                response = last_message.content[0].text.value
-                return response
-        except Exception as e:
-            logging.error(f"An error occurred while retrieving the run: {e}")
-            return None
-        
-        logging.info("Waiting for run to complete...")
-        time.sleep(sleep_interval)
-
 def main():
-    # Password protection
-    if 'authenticated' not in st.session_state:
-        st.session_state['authenticated'] = False
-
-    if not st.session_state['authenticated']:
-        password = st.text_input("Enter password:", type="password")
-        if st.button("Submit"):
-            if password == st.secrets["APP_PASSWORD"]:
-                st.session_state['authenticated'] = True
-                st.success("Access granted")
-            else:
-                st.error("Password is incorrect")
-        return
-
     st.title("AI Assistant - Memo Writer")
 
     # AWS S3 bucket name
@@ -341,6 +305,32 @@ Please write an indication of interest memo based on the provided documents and 
                 st.write(response)
             else:
                 st.error("Failed to get a response. Please try again.")
+
+            # Optionally, display run steps (for debugging)
+            # run_steps = client.beta.threads.runs.steps.list(thread_id=THREAD_ID, run_id=run.id)
+            # st.write("Run Steps:", run_steps.data[0])
+
+def wait_for_run_completion(thread_id, run_id, sleep_interval=5):
+    """Wait for a run to complete and return the response"""
+    while True:
+        try:
+            run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run_id)
+            if run.completed_at:
+                elapsed_time = run.completed_at - run.created_at
+                formatted_elapsed_time = time.strftime("%H:%M:%S", time.gmtime(elapsed_time))
+                logging.info(f"Run completed in {formatted_elapsed_time}")
+                
+                messages = client.beta.threads.messages.list(thread_id=thread_id)
+                # Assuming the assistant's reply is the last message
+                last_message = messages.data[0]
+                response = last_message.content[0].text.value
+                return response
+        except Exception as e:
+            logging.error(f"An error occurred while retrieving the run: {e}")
+            return None
+        
+        logging.info("Waiting for run to complete...")
+        time.sleep(sleep_interval)
 
 if __name__ == "__main__":
     main()
