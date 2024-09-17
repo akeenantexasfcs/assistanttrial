@@ -13,6 +13,8 @@ import streamlit as st
 import boto3
 from botocore.exceptions import NoCredentialsError
 from io import BytesIO
+from pdf2image import convert_from_bytes
+from PIL import Image
 
 # Use Streamlit's secrets management
 openai.api_key = st.secrets["OPENAI_API_KEY"]
@@ -33,16 +35,32 @@ textract = session.client('textract')
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 
-# Function to extract text synchronously
-def extract_text_synchronously(document_bytes):
-    response = textract.detect_document_text(
-        Document={'Bytes': document_bytes}
-    )
+def extract_text_synchronously(file_bytes, file_type):
     text = ''
+
+    if file_type == 'application/pdf':
+        # Convert PDF to images
+        images = convert_from_bytes(file_bytes)
+        for image in images:
+            # Convert image to bytes
+            img_byte_arr = BytesIO()
+            image.save(img_byte_arr, format='PNG')
+            img_bytes = img_byte_arr.getvalue()
+            # Call Textract on each image
+            response = textract.detect_document_text(Document={'Bytes': img_bytes})
+            text += get_text_from_response(response)
+    else:
+        # Process image files directly
+        response = textract.detect_document_text(Document={'Bytes': file_bytes})
+        text = get_text_from_response(response)
+    return text
+
+def get_text_from_response(response):
+    extracted_text = ''
     for block in response['Blocks']:
         if block['BlockType'] == 'LINE':
-            text += block['Text'] + '\n'
-    return text
+            extracted_text += block['Text'] + '\n'
+    return extracted_text
 
 def truncate_text(text, max_chars=6000):
     """Truncate text to a maximum number of characters."""
@@ -87,9 +105,10 @@ def main():
     if uploaded_file1 is not None:
         # Read file content into memory
         document_bytes1 = uploaded_file1.read()
+        file_type1 = uploaded_file1.type
         try:
             with st.spinner("Slot 1: Extracting text from the document..."):
-                document_text1 = extract_text_synchronously(document_bytes1)
+                document_text1 = extract_text_synchronously(document_bytes1, file_type1)
             st.success("Slot 1: Document text extracted successfully.")
 
             # Display a preview of the extracted text
@@ -108,9 +127,10 @@ def main():
     if uploaded_file2 is not None:
         # Read file content into memory
         document_bytes2 = uploaded_file2.read()
+        file_type2 = uploaded_file2.type
         try:
             with st.spinner("Slot 2: Extracting text from the document..."):
-                document_text2 = extract_text_synchronously(document_bytes2)
+                document_text2 = extract_text_synchronously(document_bytes2, file_type2)
             st.success("Slot 2: Document text extracted successfully.")
 
             # Display a preview of the extracted text
